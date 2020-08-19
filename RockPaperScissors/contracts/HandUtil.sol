@@ -5,20 +5,19 @@ pragma experimental ABIEncoderV2;
 import "./StrUtil.sol";
 
 contract HandUtil is StrUtil {
-    string fixSecretKey = "secret";
     string[] handList = ["rock", "paper", "scissors"];
     address defaultAddress = address(0);
 
     struct CommitmentHand {
         address userAddress;
         bytes32 encryptionHand;
-        string userSettingKey;
     }
 
     struct RevealHand {
         address userAddress;
         string userName;
         string hand;
+        string userSettingKey;
     }
 
     // 暗号化されたじゃんけんの手の取得
@@ -26,31 +25,13 @@ contract HandUtil is StrUtil {
         string memory _hand,
         string memory _userSettingKey
     ) public view returns (bytes32) {
-        return
-            keccak256(
-                abi.encodePacked(
-                    _strConnect(
-                        _strConnect(_hand, fixSecretKey),
-                        _userSettingKey
-                    )
-                )
-            );
-    }
-
-    // じゃんけんの手のチェック
-    function _checkHand(string memory _hand) public view returns (bool) {
-        bool check = false;
-        for (uint256 i = 0; i < handList.length; i++) {
-            if (equal(_hand, handList[i])) {
-                check = true;
-            }
-        }
-        return check;
+        return keccak256(abi.encodePacked(_strConnect(_hand, _userSettingKey)));
     }
 
     // 手の複合化
     function _getDecryptHand(
         address _userAddress,
+        string memory _userSettingKey,
         CommitmentHand[] memory commitmentHands
     ) public view returns (string memory) {
         string memory revealHand = "";
@@ -59,10 +40,7 @@ contract HandUtil is StrUtil {
                 for (uint256 k = 0; k < handList.length; k++) {
                     if (
                         commitmentHands[i].encryptionHand ==
-                        _getEncryptionHand(
-                            handList[k],
-                            commitmentHands[i].userSettingKey
-                        )
+                        _getEncryptionHand(handList[k], _userSettingKey)
                     ) {
                         revealHand = handList[k];
                     }

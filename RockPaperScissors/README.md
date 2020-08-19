@@ -31,11 +31,11 @@ instance._createUser(accounts[2], "GestUser")
 ## 3. ゲーム開始
 
 ホストユーザがゲームを開始します。以下が作成例です。  
-引数は`じゃんけん の手、暗号化用のキー、アドレス、デポジット金額`になります。  
+引数は`暗号化済の手+暗号化キー、アドレス、デポジット金額`になります。  
 じゃんけん の手は`rock：グー、paper：パー、scissors：チョキ`となります。
 
 ```
-instance._gameStart("rock", "key", {from: accounts[1], value: web3.utils.toWei("1", "ether")})
+instance._gameStart(web3.utils.keccak256("rock" + "key"), {from: accounts[1], value: web3.utils.toWei("1", "ether")})
 ```
 
 なお、保有 ether の確認は以下の通りで行えます。
@@ -53,20 +53,20 @@ instance._getOpenGame()
 ```
 
 以下でゲームに参加します。
-引数は`ゲームのID、じゃんけん の手、暗号化用のキー、アドレス、送信金額`になります。
+引数は`ゲームのID、暗号化済の手+暗号化キー、アドレス、送信金額`になります。
 送信金額はホストが設定されたものと同値を設定します。
 
 ```
-instance._joinGame(1, "scissors", "key2", {from: accounts[2], value: web3.utils.toWei("1", "ether")});
+instance._joinGame(1, web3.utils.keccak256("scissors" + "key2"), {from: accounts[2], value: web3.utils.toWei("1", "ether")})
 ```
 
 ## 5. 手の公開
 
-手を公開します。引数は`アドレス、ゲームのID`になります。
+手を公開します。引数は`アドレス、ゲームのID、暗号化に使用したキー`になります。
 
 ```
-instance._reveal(accounts[1], 1)
-instance._reveal(accounts[2], 1)
+instance._reveal(accounts[1], 1, "key")
+instance._reveal(accounts[2], 1, "key2")
 ```
 
 公開された手は以下で確認できます。`ゲームのID`を指定します。

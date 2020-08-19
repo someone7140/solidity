@@ -2,17 +2,12 @@
 pragma solidity >=0.4.22 <0.8.0;
 pragma experimental ABIEncoderV2;
 
-import "./UserFactory.sol";
+import "./DepositFactory.sol";
 import "./HandUtil.sol";
 
-contract GameFactory is UserFactory, HandUtil {
+contract GameFactory is DepositFactory {
     uint256 count = 0;
     uint256 timerLimit = 1 days;
-
-    struct UserDeposit {
-        address userAddress;
-        uint256 deposit;
-    }
 
     struct OpenGame {
         uint256 gameId;
@@ -21,10 +16,6 @@ contract GameFactory is UserFactory, HandUtil {
     }
 
     OpenGame[] public openGames;
-
-    struct UserDepositSetting {
-        UserDeposit[] deposits;
-    }
 
     struct CommitmentHandSetting {
         CommitmentHand[] commitmentHands;
@@ -36,34 +27,25 @@ contract GameFactory is UserFactory, HandUtil {
 
     mapping(uint256 => address) gameHostAddressMapping;
     mapping(uint256 => string) gameStateMapping;
-    mapping(uint256 => UserDepositSetting) gameDepositMapping;
     mapping(uint256 => CommitmentHandSetting) gameCommitmentHandMapping;
     mapping(uint256 => RevealHandSetting) gameRevealHandMapping;
     mapping(uint256 => uint256) gameTimerMapping;
 
     // ゲームの開始
-    function _gameStart(
-        address _userAddress,
-        string memory _hostHand,
-        uint256 _deposit,
-        string memory _userSettingKey
-    ) public {
+    function _gameStart(string memory _hostHand, string memory _userSettingKey)
+        public
+        payable
+    {
         require(_checkHand(_hostHand));
-        require(_deposit < userAmountMapping[_userAddress]);
         count++;
         uint256 gameId = count;
-        gameHostAddressMapping[gameId] = _userAddress;
+        gameHostAddressMapping[gameId] = msg.sender;
         gameStateMapping[gameId] = "gameOpen";
-        gameDepositMapping[gameId].deposits.push(
-            UserDeposit(_userAddress, _deposit)
-        );
-        userAmountMapping[_userAddress] =
-            userAmountMapping[_userAddress] -
-            _deposit;
+        _depositSet(gameId, msg.sender, msg.value);
         // 暗号化された手の登録
         gameCommitmentHandMapping[gameId].commitmentHands.push(
             CommitmentHand(
-                _userAddress,
+                msg.sender,
                 _getEncryptionHand(_hostHand, _userSettingKey),
                 _userSettingKey
             )
@@ -73,7 +55,7 @@ contract GameFactory is UserFactory, HandUtil {
             OpenGame(
                 gameId,
                 userNameMapping[gameHostAddressMapping[gameId]],
-                _deposit
+                msg.value
             )
         );
     }
@@ -85,25 +67,19 @@ contract GameFactory is UserFactory, HandUtil {
 
     // ゲームの参加
     function _joinGame(
-        address _userAddress,
         uint256 _gameId,
         string memory _counterHand,
         string memory _userSettingKey
-    ) public {
+    ) public payable {
         require(equal(gameStateMapping[_gameId], "gameOpen"));
-        require(gameHostAddressMapping[_gameId] != _userAddress);
-        // デポジットは参加ゲームのものを設定
-        uint256 deposit = gameDepositMapping[_gameId].deposits[0].deposit;
-        gameDepositMapping[_gameId].deposits.push(
-            UserDeposit(_userAddress, deposit)
-        );
-        userAmountMapping[_userAddress] =
-            userAmountMapping[_userAddress] -
-            deposit;
+        require(gameHostAddressMapping[_gameId] != msg.sender);
+        // デポジットは参加ゲームの金額が設定されているか
+        require(_depositCheckGuest(_gameId, msg.value));
+        _depositSet(_gameId, msg.sender, msg.value);
         // 暗号化された手の登録
         gameCommitmentHandMapping[_gameId].commitmentHands.push(
             CommitmentHand(
-                _userAddress,
+                msg.sender,
                 _getEncryptionHand(_counterHand, _userSettingKey),
                 _userSettingKey
             )
@@ -142,7 +118,6 @@ contract GameFactory is UserFactory, HandUtil {
             if (equal(gameStateMapping[_gameId], "oneRevealed")) {
                 // 時間チェック
                 require(!_exceededTimerCheck(_gameId));
-
                 gameRevealHandMapping[_gameId].revealHands.push(
                     RevealHand(
                         _userAddress,
@@ -156,32 +131,7 @@ contract GameFactory is UserFactory, HandUtil {
                     gameRevealHandMapping[_gameId].revealHands
                 );
                 // デポジットの更新
-                uint256 winnerDepositIndex = 0;
-                uint256 loserDepositIndex = 0;
-                if (winner != defaultAddress) {
-                    for (
-                        uint256 i;
-                        i < gameDepositMapping[_gameId].deposits.length;
-                        i++
-                    ) {
-                        if (
-                            gameDepositMapping[_gameId].deposits[i]
-                                .userAddress == winner
-                        ) {
-                            winnerDepositIndex = i;
-                        } else {
-                            loserDepositIndex = i;
-                        }
-                    }
-                }
-                gameDepositMapping[_gameId].deposits[winnerDepositIndex]
-                    .deposit =
-                    gameDepositMapping[_gameId].deposits[winnerDepositIndex]
-                        .deposit +
-                    gameDepositMapping[_gameId].deposits[loserDepositIndex]
-                        .deposit;
-                gameDepositMapping[_gameId].deposits[loserDepositIndex]
-                    .deposit = 0;
+                _depositUpdatebyGame(winner, _gameId);
             } else if (equal(gameStateMapping[_gameId], "commitment")) {
                 gameRevealHandMapping[_gameId].revealHands.push(
                     RevealHand(
@@ -207,7 +157,9 @@ contract GameFactory is UserFactory, HandUtil {
     }
 
     // デポジットの引出し
-    function _drawDeposit(address _userAddress, uint256 _gameId) public {
+    function _drawDeposit(address payable _userAddress, uint256 _gameId)
+        public
+    {
         // twoRevealedか、oneRevealedで時間超過
         require(
             equal(gameStateMapping[_gameId], "twoRevealed") ||
@@ -215,37 +167,15 @@ contract GameFactory is UserFactory, HandUtil {
                     _exceededTimerCheck(_gameId))
         );
         if (equal(gameStateMapping[_gameId], "twoRevealed")) {
-            for (
-                uint256 i;
-                i < gameDepositMapping[_gameId].deposits.length;
-                i++
-            ) {
-                if (
-                    gameDepositMapping[_gameId].deposits[i].userAddress ==
-                    _userAddress
-                ) {
-                    userAmountMapping[_userAddress] =
-                        userAmountMapping[_userAddress] +
-                        gameDepositMapping[_gameId].deposits[i].deposit;
-                    gameDepositMapping[_gameId].deposits[i].deposit = 0;
-                }
-            }
+            _drawDepositWhenRevealed(_userAddress, _gameId);
         } else {
-            // 時間超過の場合は双方の合計
-            uint256 depositSum = 0;
-            for (
-                uint256 i;
-                i < gameDepositMapping[_gameId].deposits.length;
-                i++
+            // 時間超過の場合は開示したアドレスのみ双方の合計を引出し
+            if (
+                gameRevealHandMapping[_gameId].revealHands[0].userAddress ==
+                _userAddress
             ) {
-                depositSum =
-                    depositSum +
-                    gameDepositMapping[_gameId].deposits[i].deposit;
-                gameDepositMapping[_gameId].deposits[i].deposit = 0;
+                _drawDepositWhenTimeExceeded(_userAddress, _gameId);
             }
-            userAmountMapping[_userAddress] =
-                userAmountMapping[_userAddress] +
-                depositSum;
         }
     }
 

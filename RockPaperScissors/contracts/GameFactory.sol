@@ -32,11 +32,7 @@ contract GameFactory is DepositFactory {
     mapping(uint256 => uint256) gameTimerMapping;
 
     // ゲームの開始
-    function _gameStart(string memory _hostHand, string memory _userSettingKey)
-        public
-        payable
-    {
-        require(_checkHand(_hostHand));
+    function _gameStart(bytes32 _hostEncryptionHand) public payable {
         count++;
         uint256 gameId = count;
         gameHostAddressMapping[gameId] = msg.sender;
@@ -44,11 +40,7 @@ contract GameFactory is DepositFactory {
         _depositSet(gameId, msg.sender, msg.value);
         // 暗号化された手の登録
         gameCommitmentHandMapping[gameId].commitmentHands.push(
-            CommitmentHand(
-                msg.sender,
-                _getEncryptionHand(_hostHand, _userSettingKey),
-                _userSettingKey
-            )
+            CommitmentHand(msg.sender, _hostEncryptionHand)
         );
         // 受付ゲームの取得
         openGames.push(
@@ -66,11 +58,10 @@ contract GameFactory is DepositFactory {
     }
 
     // ゲームの参加
-    function _joinGame(
-        uint256 _gameId,
-        string memory _counterHand,
-        string memory _userSettingKey
-    ) public payable {
+    function _joinGame(uint256 _gameId, bytes32 _guestEncryptionHand)
+        public
+        payable
+    {
         require(equal(gameStateMapping[_gameId], "gameOpen"));
         require(gameHostAddressMapping[_gameId] != msg.sender);
         // デポジットは参加ゲームの金額が設定されているか
@@ -78,11 +69,7 @@ contract GameFactory is DepositFactory {
         _depositSet(_gameId, msg.sender, msg.value);
         // 暗号化された手の登録
         gameCommitmentHandMapping[_gameId].commitmentHands.push(
-            CommitmentHand(
-                msg.sender,
-                _getEncryptionHand(_counterHand, _userSettingKey),
-                _userSettingKey
-            )
+            CommitmentHand(msg.sender, _guestEncryptionHand)
         );
         // 受付ゲームの削除
         for (uint256 i; i < openGames.length; i++) {
@@ -95,7 +82,11 @@ contract GameFactory is DepositFactory {
     }
 
     // 手の公開
-    function _reveal(address _userAddress, uint256 _gameId) public {
+    function _reveal(
+        address _userAddress,
+        uint256 _gameId,
+        string memory _userSettingKey
+    ) public {
         require(
             equal(gameStateMapping[_gameId], "commitment") ||
                 equal(gameStateMapping[_gameId], "oneRevealed")
@@ -112,6 +103,7 @@ contract GameFactory is DepositFactory {
             // 暗号化された手の復号化
             string memory revealHand = _getDecryptHand(
                 _userAddress,
+                _userSettingKey,
                 gameCommitmentHandMapping[_gameId].commitmentHands
             );
             require(!equal(revealHand, ""));
@@ -122,7 +114,8 @@ contract GameFactory is DepositFactory {
                     RevealHand(
                         _userAddress,
                         userNameMapping[_userAddress],
-                        revealHand
+                        revealHand,
+                        _userSettingKey
                     )
                 );
                 gameStateMapping[_gameId] = "twoRevealed";
@@ -137,7 +130,8 @@ contract GameFactory is DepositFactory {
                     RevealHand(
                         _userAddress,
                         userNameMapping[_userAddress],
-                        revealHand
+                        revealHand,
+                        _userSettingKey
                     )
                 );
                 gameStateMapping[_gameId] = "oneRevealed";
